@@ -23,10 +23,20 @@ for dataset_name in DATASETS:
     node_features = data.x.numpy()  # Convert to numpy array for easier manipulation
     node_labels = data.y.numpy()  # Convert to numpy array for easier manipulation
 
+    # Access masks
+    train_mask = data.train_mask.numpy()
+    val_mask = data.val_mask.numpy()
+    test_mask = data.test_mask.numpy()
+
     # Combine node features and labels into a single array
     nodes_data = np.hstack((np.arange(node_features.shape[0]).reshape(-1, 1),  # Add node IDs
                             node_features,  # Add node features
                             node_labels.reshape(-1, 1)))  # Add node labels
+
+    # Save masks
+    np.save(join(DATA_DIR, dataset_name, 'train_mask.npy'), train_mask)
+    np.save(join(DATA_DIR, dataset_name, 'val_mask.npy'), val_mask)
+    np.save(join(DATA_DIR, dataset_name, 'test_mask.npy'), test_mask)
 
     # Access edges
     edges = data.edge_index.numpy().T  # Transpose to get each edge as a row
