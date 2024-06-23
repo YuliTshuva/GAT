@@ -2,19 +2,37 @@ from __future__ import division
 from __future__ import print_function
 
 import os
+import shutil
+from os.path import join
 import glob
 import time
 import random
 import argparse
 import numpy as np
+from tqdm import tqdm
+import pickle
+import matplotlib.pyplot as plt
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.autograd import Variable
 
 from utils import load_data, accuracy
 from models import GAT, SpGAT
+
+# Constants
+CHECKPOINTS = 'checkpoints'
+DATASET = "cora"
+M = 1e100
+OUTPUT_DIR = 'output'
+PRESENT_EVERY = 100
+
+# Create a directory for checkpoints
+if os.path.exists(join(CHECKPOINTS, DATASET)):
+    shutil.rmtree(join(CHECKPOINTS, DATASET))
+if os.path.exists(join(OUTPUT_DIR, DATASET)):
+    shutil.rmtree(join(OUTPUT_DIR, DATASET))
+os.mkdir(join(CHECKPOINTS, DATASET))
 
 # Training settings
 parser = argparse.ArgumentParser()
@@ -38,6 +56,9 @@ args = parser.parse_args()
 
 # Consider the computer resources in cuda parameter
 args.cuda = not args.no_cuda and torch.cuda.is_available()
+
+if args.cuda:
+    print("Using cuda resources.")
 
 # Set random seed
 random.seed(args.seed)
@@ -121,19 +142,20 @@ def train(epoch):
     loss_val = F.nll_loss(output[idx_val], labels[idx_val])
     acc_val = accuracy(output[idx_val], labels[idx_val])
 
-    print('Epoch: {:04d}'.format(epoch + 1),
-          "\n\t",
-          'loss_train: {:.4f}'.format(loss_train.data.item()),
-          "\n\t",
-          'acc_train: {:.4f}'.format(acc_train.data.item()),
-          "\n\t",
-          'loss_val: {:.4f}'.format(loss_val.data.item()),
-          "\n\t",
-          'acc_val: {:.4f}'.format(acc_val.data.item()),
-          "\n\t",
-          'time: {:.4f}s'.format(time.time() - t))
+    if epoch % PRESENT_EVERY == 0:
+        print('Epoch: {:04d}'.format(epoch),
+              "\n\t",
+              'Train Loss: {:.4f}'.format(loss_train.data.item()),
+              "\n\t",
+              'Train Accuracy: {:.4f}'.format(acc_train.data.item()),
+              "\n\t",
+              'Validation Loss: {:.4f}'.format(loss_val.data.item()),
+              "\n\t",
+              'Validation Accuracy: {:.4f}'.format(acc_val.data.item()),
+              "\n\t",
+              'Time: {:.4f}s'.format(time.time() - t))
 
-    return loss_val.data.item()
+    return loss_val.data.item(), loss_train.data.item(), acc_val.data.item(), acc_train.data.item()
 
 
 def compute_test():
@@ -142,39 +164,68 @@ def compute_test():
     loss_test = F.nll_loss(output[idx_test], labels[idx_test])
     acc_test = accuracy(output[idx_test], labels[idx_test])
     print("Test set results:",
-          "loss= {:.4f}".format(loss_test.data.item()),
-          "accuracy= {:.4f}".format(acc_test.data.item()))
+          "\n\t",
+          "loss: {:.4f}".format(loss_test.data.item()),
+          "\n\t",
+          "accuracy: {:.4f}".format(acc_test.data.item()))
 
 
 # Train model
 t_total = time.time()
 loss_values = []
+status_report = []
 bad_counter = 0
-best = args.epochs + 1
+best = M
 best_epoch = 0
-for epoch in range(args.epochs):
-    loss_values.append(train(epoch))
+for epoch in tqdm(range(args.epochs), desc="Epochs:"):
+    # Training epoch and add to loss list
+    loss_val, loss_train, acc_val, acc_train = train(epoch)
 
-    torch.save(model.state_dict(), '{}.pkl'.format(epoch))
+    # Add values to status report
+    status_report += [loss_val, loss_train, acc_val, acc_train]
+
+    # Add validation loss to list
+    loss_values.append(loss_val)
+
+    # Save checkpoint
+    torch.save(model.state_dict(), join(CHECKPOINTS, DATASET, f'{epoch}.pkl'))
+
+    # Update best epoch's model
     if loss_values[-1] < best:
         best = loss_values[-1]
         best_epoch = epoch
         bad_counter = 0
+    # If loss did not improved, note that
     else:
         bad_counter += 1
 
+    # Check if exceeded patience
     if bad_counter == args.patience:
         break
 
-    files = glob.glob('*.pkl')
+    # Remove irrelevant checkpoints
+    files = glob.glob(join(CHECKPOINTS, DATASET, '*.pkl'))
     for file in files:
-        epoch_nb = int(file.split('.')[0])
+        # Find the epoch number
+        epoch_nb = ""
+        for char in file[:-4][::-1]:
+            if char.isdigit():
+                epoch_nb += char
+        epoch_nb = int(epoch_nb[::-1])
+        # Check if former to best epoch
         if epoch_nb < best_epoch:
             os.remove(file)
 
-files = glob.glob('*.pkl')
+# Remove irrelevant checkpoints
+files = glob.glob(join(CHECKPOINTS, DATASET, '*.pkl'))
 for file in files:
-    epoch_nb = int(file.split('.')[0])
+    # Find the epoch number
+    epoch_nb = ""
+    for char in file[:-4][::-1]:
+        if char.isdigit():
+            epoch_nb += char
+    epoch_nb = int(epoch_nb[::-1])
+    # Check if after best epoch
     if epoch_nb > best_epoch:
         os.remove(file)
 
@@ -183,7 +234,16 @@ print("Total time elapsed: {:.4f}s".format(time.time() - t_total))
 
 # Restore best model
 print('Loading {}th epoch'.format(best_epoch))
-model.load_state_dict(torch.load('{}.pkl'.format(best_epoch)))
+model.load_state_dict(torch.load(join(CHECKPOINTS, DATASET, '{}.pkl'.format(best_epoch))))
 
 # Testing
 compute_test()
+
+### Plotting
+# create output directory
+save_dir = join(OUTPUT_DIR, DATASET)
+os.makedirs(save_dir, exist_ok=True)
+
+# Save the status report
+with open(join(save_dir, "status_report.pkl"), "wb") as file:
+    pickle.dump(status_report, file)

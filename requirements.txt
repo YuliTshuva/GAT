@@ -2,3 +2,5 @@ numpy
 scipy
 torch
 graphviz
+tqdm
+matplotlib
