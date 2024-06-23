@@ -20,8 +20,8 @@ for dataset_name in DATASETS:
     data = dataset[0]
 
     # Access node features and labels
-    node_features = data.x.numpy()  # Convert to numpy array for easier manipulation
-    node_labels = data.y.numpy()  # Convert to numpy array for easier manipulation
+    node_features = data.x.numpy().astype(np.int32)  # Convert to numpy array for easier manipulation
+    node_labels = data.y.numpy().astype(np.int32)  # Convert to numpy array for easier manipulation
 
     # Access masks
     train_mask = data.train_mask.numpy()
@@ -29,9 +29,10 @@ for dataset_name in DATASETS:
     test_mask = data.test_mask.numpy()
 
     # Combine node features and labels into a single array
-    nodes_data = np.hstack((np.arange(node_features.shape[0]).reshape(-1, 1),  # Add node IDs
+    nodes_data = np.hstack((np.arange(node_features.shape[0], dtype=np.int32).reshape(-1, 1),  # Add node IDs
                             node_features,  # Add node features
-                            node_labels.reshape(-1, 1)))  # Add node labels
+                            node_labels.reshape(-1, 1)),  # Add node labels
+                           dtype=np.int32)
 
     # Save masks
     np.save(join(DATA_DIR, dataset_name, 'train_mask.npy'), train_mask)
